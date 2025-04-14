@@ -2,6 +2,7 @@ import streamlit as st
 import cv2
 import mediapipe as mp
 import numpy as np
+import os
 
 # Initialize MediaPipe
 mp_drawing = mp.solutions.drawing_utils
@@ -21,12 +22,11 @@ mouth_indices = [61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291, 61]
 
 def process_frame(image):
     try:
-        # Resize and flip image
+        # Resize image while maintaining aspect ratio
         target_width = 640
         aspect_ratio = image.shape[1] / image.shape[0]
         target_height = int(target_width / aspect_ratio)
         image = cv2.resize(image, (target_width, target_height))
-        image = cv2.flip(image, 1)  # Mirror image for webcam
         image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
         # Process with MediaPipe
@@ -97,13 +97,17 @@ def process_frame(image):
 
         return annotated_image
     except Exception as e:
-        st.error(f"Error processing frame: {str(e)}")
+        st.error(f"Error processing image: {str(e)}")
         return image
 
 st.title("LandMarkFinder")
+st.write("Face and Hand Landmark Detector")
+
+# Check if running in cloud
+is_cloud = os.getenv("STREAMLIT_SERVER_HEADLESS", "false") == "true"
 
 # Image Upload Section
-st.header("image section")
+st.header("Image Upload")
 uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "jpeg", "png"])
 if uploaded_file is not None:
     try:
@@ -114,54 +118,56 @@ if uploaded_file is not None:
         else:
             annotated_image = process_frame(image)
             annotated_image_rgb = cv2.cvtColor(annotated_image, cv2.COLOR_BGR2RGB)
-            st.image(annotated_image_rgb, caption="Detected Image", use_column_width=True)
+            st.image(annotated_image_rgb, caption="Detected Landmarks", use_column_width=True)
     except Exception as e:
         st.error(f"Error processing uploaded image: {str(e)}")
 
-# Camera Section
-st.header("Webcam Detection")
-if "camera_active" not in st.session_state:
-    st.session_state.camera_active = False
-if "cap" not in st.session_state:
-    st.session_state.cap = None
-
-col1, col2 = st.columns(2)
-with col1:
-    if st.button("Start Camera"):
-        if not st.session_state.camera_active:
-            st.session_state.cap = cv2.VideoCapture(0)
-            if st.session_state.cap.isOpened():
-                st.session_state.camera_active = True
-            else:
-                st.error("Error: Could not access camera.")
-                st.session_state.cap = None
-with col2:
-    if st.button("Stop Camera"):
+# Webcam Section (local only)
+if not is_cloud:
+    st.header("Webcam Detection")
+    if "camera_active" not in st.session_state:
         st.session_state.camera_active = False
-        if st.session_state.cap is not None:
-            st.session_state.cap.release()
-            st.session_state.cap = None
-            st.empty()  # Clear frame
+    if "cap" not in st.session_state:
+        st.session_state.cap = None
 
-frame_placeholder = st.empty()
-if st.session_state.camera_active and st.session_state.cap is not None:
-    try:
-        while st.session_state.camera_active:
-            success, frame = st.session_state.cap.read()
-            if not success:
-                st.error("Failed to capture frame.")
-                st.session_state.camera_active = False
-                break
-            annotated_frame = process_frame(frame)
-            annotated_frame_rgb = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
-            frame_placeholder.image(annotated_frame_rgb, caption="Camera Feed", use_column_width=True)
-    except Exception as e:
-        st.error(f"Error in camera feed: {str(e)}")
-    finally:
-        if st.session_state.cap is not None:
-            st.session_state.cap.release()
-            st.session_state.cap = None
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("Start Camera"):
+            if not st.session_state.camera_active:
+                st.session_state.cap = cv2.VideoCapture(0)
+                if st.session_state.cap.isOpened():
+                    st.session_state.camera_active = True
+                else:
+                    st.error("Error: Could not access camera.")
+                    st.session_state.cap = None
+    with col2:
+        if st.button("Stop Camera"):
             st.session_state.camera_active = False
-            frame_placeholder.empty()
+            if st.session_state.cap is not None:
+                st.session_state.cap.release()
+                st.session_state.cap = None
+                st.empty()
 
-st.write("Face and hand LandMark Detector")
+    frame_placeholder = st.empty()
+    if st.session_state.camera_active and st.session_state.cap is not None:
+        try:
+            while st.session_state.camera_active:
+                success, frame = st.session_state.cap.read()
+                if not success:
+                    st.error("Failed to capture frame.")
+                    st.session_state.camera_active = False
+                    break
+                frame = cv2.flip(frame, 1)  # Mirror for webcam
+                annotated_frame = process_frame(frame)
+                annotated_frame_rgb = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
+                frame_placeholder.image(annotated_frame_rgb, caption="Camera Feed", use_column_width=True)
+        except Exception as e:
+            st.error(f"Error in camera feed: {str(e)}")
+        finally:
+            if st.session_state.cap is not None:
+                st.session_state.cap.release()
+                st.session_state.cap = None
+                st.session_state.camera_active = False
+                frame_placeholder.empty()
+else:
+    st.info("Webcam detection is not available in cloud deployment. Use image upload instead.")
