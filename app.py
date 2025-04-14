@@ -134,11 +134,14 @@ if not is_cloud:
     with col1:
         if st.button("Start Camera"):
             if not st.session_state.camera_active:
-                st.session_state.cap = cv2.VideoCapture(0)
-                if st.session_state.cap.isOpened():
-                    st.session_state.camera_active = True
-                else:
-                    st.error("Error: Could not access camera.")
+                # Try multiple indices
+                for index in [0, 1, 2, 3]:
+                    st.session_state.cap = cv2.VideoCapture(index)
+                    if st.session_state.cap.isOpened():
+                        st.session_state.camera_active = True
+                        break
+                if not st.session_state.camera_active:
+                    st.error(f"Error: Could not access camera on indices 0-3. Check connection or permissions.")
                     st.session_state.cap = None
     with col2:
         if st.button("Stop Camera"):
