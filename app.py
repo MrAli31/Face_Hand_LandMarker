@@ -2,7 +2,17 @@ import streamlit as st
 import cv2
 import mediapipe as mp
 import numpy as np
-import os
+
+# Detect if running on Streamlit Cloud
+def is_running_on_streamlit_cloud():
+    try:
+        import streamlit.runtime.scriptrunner.script_run_context as context
+        ctx = context.get_script_run_context()
+        return ctx is not None and "streamlit" in ctx.session_id
+    except:
+        return False
+
+is_cloud = is_running_on_streamlit_cloud()
 
 # Initialize MediaPipe
 mp_drawing = mp.solutions.drawing_utils
@@ -22,19 +32,16 @@ mouth_indices = [61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291, 61]
 
 def process_frame(image):
     try:
-        # Resize image while maintaining aspect ratio
         target_width = 640
         aspect_ratio = image.shape[1] / image.shape[0]
         target_height = int(target_width / aspect_ratio)
         image = cv2.resize(image, (target_width, target_height))
         image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
-        # Process with MediaPipe
         face_results = face_mesh.process(image_rgb)
         hand_results = hands.process(image_rgb)
         annotated_image = image.copy()
 
-        # Draw face landmarks
         if face_results.multi_face_landmarks:
             for face_landmarks in face_results.multi_face_landmarks:
                 mp_drawing.draw_landmarks(
@@ -44,47 +51,23 @@ def process_frame(image):
                     landmark_drawing_spec=None,
                     connection_drawing_spec=mp_drawing_styles.get_default_face_mesh_tesselation_style()
                 )
-                # Left eye
-                for i in range(len(left_eye_indices) - 1):
-                    start_idx = left_eye_indices[i]
-                    end_idx = left_eye_indices[i + 1]
-                    start_landmark = face_landmarks.landmark[start_idx]
-                    end_landmark = face_landmarks.landmark[end_idx]
-                    start_x = int(start_landmark.x * annotated_image.shape[1])
-                    start_y = int(start_landmark.y * annotated_image.shape[0])
-                    end_x = int(end_landmark.x * annotated_image.shape[1])
-                    end_y = int(end_landmark.y * annotated_image.shape[0])
-                    cv2.line(annotated_image, (start_x, start_y), (end_x, end_y), (0, 0, 255), 1)
-                # Right eye
-                for i in range(len(right_eye_indices) - 1):
-                    start_idx = right_eye_indices[i]
-                    end_idx = right_eye_indices[i + 1]
-                    start_landmark = face_landmarks.landmark[start_idx]
-                    end_landmark = face_landmarks.landmark[end_idx]
-                    start_x = int(start_landmark.x * annotated_image.shape[1])
-                    start_y = int(start_landmark.y * annotated_image.shape[0])
-                    end_x = int(end_landmark.x * annotated_image.shape[1])
-                    end_y = int(end_landmark.y * annotated_image.shape[0])
-                    cv2.line(annotated_image, (start_x, start_y), (end_x, end_y), (0, 0, 255), 1)
-                # Nose
-                for idx in nose_indices:
-                    landmark = face_landmarks.landmark[idx]
-                    x = int(landmark.x * annotated_image.shape[1])
-                    y = int(landmark.y * annotated_image.shape[0])
-                    cv2.circle(annotated_image, (x, y), 5, (0, 255, 0), -1)
-                # Mouth
-                for i in range(len(mouth_indices) - 1):
-                    start_idx = mouth_indices[i]
-                    end_idx = mouth_indices[i + 1]
-                    start_landmark = face_landmarks.landmark[start_idx]
-                    end_landmark = face_landmarks.landmark[end_idx]
-                    start_x = int(start_landmark.x * annotated_image.shape[1])
-                    start_y = int(start_landmark.y * annotated_image.shape[0])
-                    end_x = int(end_landmark.x * annotated_image.shape[1])
-                    end_y = int(end_landmark.y * annotated_image.shape[0])
-                    cv2.line(annotated_image, (start_x, start_y), (end_x, end_y), (255, 0, 0), 2)
+                # Draw eye, nose, mouth
+                for feature_indices, color in zip(
+                    [left_eye_indices, right_eye_indices, mouth_indices],
+                    [(0, 0, 255), (0, 0, 255), (255, 0, 0)]
+                ):
+                    for i in range(len(feature_indices) - 1):
+                        start = face_landmarks.landmark[feature_indices[i]]
+                        end = face_landmarks.landmark[feature_indices[i + 1]]
+                        sx, sy = int(start.x * annotated_image.shape[1]), int(start.y * annotated_image.shape[0])
+                        ex, ey = int(end.x * annotated_image.shape[1]), int(end.y * annotated_image.shape[0])
+                        cv2.line(annotated_image, (sx, sy), (ex, ey), color, 1)
 
-        # Draw hand landmarks
+                for idx in nose_indices:
+                    point = face_landmarks.landmark[idx]
+                    x, y = int(point.x * annotated_image.shape[1]), int(point.y * annotated_image.shape[0])
+                    cv2.circle(annotated_image, (x, y), 5, (0, 255, 0), -1)
+
         if hand_results.multi_hand_landmarks:
             for hand_landmarks in hand_results.multi_hand_landmarks:
                 mp_drawing.draw_landmarks(
@@ -102,9 +85,6 @@ def process_frame(image):
 
 st.title("LandMarkFinder")
 st.write("Face and Hand Landmark Detector")
-
-# Check if running in cloud
-is_cloud = os.getenv("STREAMLIT_SERVER_HEADLESS", "false") == "true"
 
 # Image Upload Section
 st.header("Image Upload")
@@ -134,14 +114,13 @@ if not is_cloud:
     with col1:
         if st.button("Start Camera"):
             if not st.session_state.camera_active:
-                # Try multiple indices
                 for index in [0, 1, 2, 3]:
                     st.session_state.cap = cv2.VideoCapture(index)
                     if st.session_state.cap.isOpened():
                         st.session_state.camera_active = True
                         break
                 if not st.session_state.camera_active:
-                    st.error(f"Error: Could not access camera on indices 0-3. Check connection or permissions.")
+                    st.error("Error: Could not access camera on indices 0–3. Check connection or permissions.")
                     st.session_state.cap = None
     with col2:
         if st.button("Stop Camera"):
@@ -160,7 +139,7 @@ if not is_cloud:
                     st.error("Failed to capture frame.")
                     st.session_state.camera_active = False
                     break
-                frame = cv2.flip(frame, 1)  # Mirror for webcam
+                frame = cv2.flip(frame, 1)
                 annotated_frame = process_frame(frame)
                 annotated_frame_rgb = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
                 frame_placeholder.image(annotated_frame_rgb, caption="Camera Feed", use_column_width=True)
@@ -173,4 +152,4 @@ if not is_cloud:
                 st.session_state.camera_active = False
                 frame_placeholder.empty()
 else:
-    st.info("Webcam detection is not available in cloud deployment. Use image upload instead.")
+    st.info("🚫 Webcam detection is not supported in Streamlit Cloud.\nPlease use the image upload section above.")
